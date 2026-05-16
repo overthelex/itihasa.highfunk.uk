@@ -8,6 +8,9 @@ interface Bucket { b: string; n: number; sa: number; en: number }
 interface Section { name: string; count: number; avg_r: number; min_r: number; max_r: number }
 interface Overview { buckets: Bucket[]; sections: Section[]; total: number }
 interface Meta { total: number; chunks: number; per_page: number }
+interface PageIdx { p: number; min: number; max: number; n: number }
+interface BucketIdx { first_page: number; last_page: number; pages: number }
+interface PageIndex { pages: PageIdx[]; buckets: Record<string, BucketIdx> }
 
 const BUCKET_COLORS: Record<string, string> = {
   "<1x": "bg-gray-200", "1-2x": "bg-blue-100", "2-3x": "bg-blue-200",
@@ -24,6 +27,7 @@ function Browser() {
   const sp = useSearchParams();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
+  const [pageIndex, setPageIndex] = useState<PageIndex | null>(null);
   const [pairs, setPairs] = useState<Pair[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,6 +40,7 @@ function Browser() {
   useEffect(() => {
     fetch("/data/overview.json").then((r) => r.json()).then(setOverview);
     fetch("/data/meta.json").then((r) => r.json()).then(setMeta);
+    fetch("/data/page_index.json").then((r) => r.json()).then(setPageIndex);
   }, []);
 
   useEffect(() => {
@@ -89,7 +94,12 @@ function Browser() {
               return (
                 <button
                   key={b.b}
-                  onClick={() => nav({ view: "browse", page: "0", min_r: range[0], max_r: range[1] })}
+                  onClick={() => {
+                    const bucketKey = Object.entries(BUCKET_RANGES).find(([, v]) => v[0] === range[0] && v[1] === range[1])?.[0] || "";
+                    const keyMap: Record<string, string> = {"<1x":"lt1","1-2x":"1_2","2-3x":"2_3","3-5x":"3_5","5-10x":"5_10","10-20x":"10_20","20x+":"20p"};
+                    const startPage = pageIndex?.buckets[keyMap[bucketKey]]?.first_page ?? 0;
+                    nav({ view: "browse", page: String(startPage), min_r: range[0], max_r: range[1] });
+                  }}
                   className="w-full flex items-center gap-3 group hover:bg-gray-50 rounded-lg p-1.5 transition text-left"
                 >
                   <span className="w-16 text-sm font-mono text-right font-medium text-gray-700">{b.b}</span>
@@ -131,21 +141,28 @@ function Browser() {
           <h2 className="text-lg font-semibold mb-3">Browse by Type</h2>
           <div className="flex flex-wrap gap-3">
             {[
-              { label: "All pairs", min: "0", max: "999", desc: "93K pairs", color: "bg-indigo-600" },
-              { label: "Standard translation (1-3x)", min: "1", max: "3", desc: "58K pairs", color: "bg-blue-500" },
-              { label: "Expanded translation (3-5x)", min: "3", max: "5", desc: "30K pairs", color: "bg-blue-600" },
-              { label: "Commentary-like (5-10x)", min: "5", max: "10", desc: "4.4K pairs", color: "bg-amber-500" },
-              { label: "Exegetical (10x+)", min: "10", max: "999", desc: "269 pairs", color: "bg-red-600" },
-            ].map((b) => (
-              <button
-                key={b.label}
-                onClick={() => nav({ view: "browse", page: "0", min_r: b.min, max_r: b.max })}
-                className={`${b.color} text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition`}
-              >
-                {b.label}
-                <span className="block text-xs opacity-75 mt-0.5">{b.desc}</span>
-              </button>
-            ))}
+              { label: "All pairs", min: "0", max: "999", bucket: "all", color: "bg-indigo-600" },
+              { label: "Standard translation (1-3x)", min: "1", max: "3", bucket: "1_2", color: "bg-blue-500" },
+              { label: "Expanded translation (3-5x)", min: "3", max: "5", bucket: "3_5", color: "bg-blue-600" },
+              { label: "Commentary-like (5-10x)", min: "5", max: "10", bucket: "5_10", color: "bg-amber-500" },
+              { label: "Exegetical (10x+)", min: "10", max: "999", bucket: "10_20", color: "bg-red-600" },
+            ].map((b) => {
+              const idx = pageIndex?.buckets[b.bucket];
+              const startPage = idx?.first_page ?? 0;
+              const numPages = idx?.pages ?? 0;
+              return (
+                <button
+                  key={b.label}
+                  onClick={() => nav({ view: "browse", page: String(startPage), min_r: b.min, max_r: b.max })}
+                  className={`${b.color} text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition`}
+                >
+                  {b.label}
+                  <span className="block text-xs opacity-75 mt-0.5">
+                    {numPages > 0 ? `${numPages} pages` : "loading..."}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
