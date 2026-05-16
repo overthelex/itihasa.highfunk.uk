@@ -378,42 +378,112 @@ function Browser() {
 
         {/* Splits */}
         <section className="mb-10">
-          <h2 className="split-section-label">Dataset Splits</h2>
-          <div className="grid grid-cols-3 gap-4">
-            {overview.sections.map((s, i) => (
-              <div key={s.name} className={`split-card split-card--${i}`}>
-                <div className="split-card__name">{s.name}</div>
-                <div className="split-card__count">{s.count.toLocaleString()}</div>
-                <div className="split-card__meta">
-                  avg {s.avg_r}x &middot; range {s.min_r}–{s.max_r}x
+          <h2 className="text-[11px] font-bold tracking-[0.12em] uppercase text-stone-400 mb-4">Dataset Splits</h2>
+
+          {/* Stacked proportion bar */}
+          {(() => {
+            const total = overview.total;
+            const colors = ["bg-stone-700", "bg-indigo-400", "bg-stone-300"];
+            return (
+              <div className="mb-5">
+                <div className="flex h-2 rounded-full overflow-hidden gap-px">
+                  {overview.sections.map((s, i) => (
+                    <div
+                      key={s.name}
+                      className={`${colors[i]} transition-all duration-700`}
+                      style={{ width: `${(s.count / total) * 100}%` }}
+                      title={`${s.name}: ${((s.count / total) * 100).toFixed(1)}%`}
+                    />
+                  ))}
+                </div>
+                <div className="flex mt-1.5 gap-px">
+                  {overview.sections.map((s, i) => (
+                    <div
+                      key={s.name}
+                      style={{ width: `${(s.count / total) * 100}%` }}
+                      className="overflow-hidden"
+                    >
+                      <span className={`text-[9px] font-semibold uppercase tracking-wide ${i === 1 ? "text-indigo-500" : "text-stone-400"} whitespace-nowrap`}>
+                        {((s.count / total) * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            );
+          })()}
+
+          {/* Split rows */}
+          <div className="divide-y divide-stone-100">
+            {overview.sections.map((s, i) => {
+              const pct = ((s.count / overview.total) * 100).toFixed(1);
+              const dotColors = ["bg-stone-700", "bg-indigo-400", "bg-stone-300"];
+              return (
+                <div key={s.name} className="flex items-baseline gap-3 py-2.5">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-0.5 self-center ${dotColors[i]}`} />
+                  <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide w-24 shrink-0">{s.name}</span>
+                  <span className="text-sm font-bold tabular-nums text-stone-800 w-20 shrink-0">{s.count.toLocaleString()}</span>
+                  <span className="text-[11px] tabular-nums text-stone-400 w-10 shrink-0">{pct}%</span>
+                  <span className="text-[11px] text-stone-300 hidden sm:block">avg {s.avg_r}x &middot; range {s.min_r}–{s.max_r}x</span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
         {/* Browse by type */}
         <section className="mb-10">
           <div className="flex items-baseline gap-2 mb-5">
-            <h2 className="split-section-label">Browse by Type</h2>
+            <h2 className="text-[11px] font-bold tracking-[0.12em] uppercase text-stone-400">Browse by Type</h2>
             <Hint text="Pairs are pre-sorted by expansion ratio (highest first). Each category jumps to the page where that ratio range begins." />
           </div>
-          <div className="grid grid-cols-5 gap-3">
-            {BROWSE_BY.map((b, i) => {
-              const n = pageIndex?.buckets[b.idx]?.pages ?? 0;
-              const start = pageIndex?.buckets[b.idx]?.first_page ?? 0;
-              return (
-                <button
-                  key={b.label}
-                  onClick={() => nav({ view: "browse", page: String(start), min_r: b.min, max_r: b.max })}
-                  className={`browse-card browse-card--${i}`}
-                >
-                  <div className="browse-card__label">{b.label}</div>
-                  <div className="browse-card__desc">{b.desc}</div>
-                  <div className="browse-card__pages">{n} {n === 1 ? "page" : "pages"}</div>
-                </button>
-              );
-            })}
+
+          {/* Spectrum track */}
+          <div className="relative">
+            {/* Axis label */}
+            <div className="flex justify-between text-[9px] uppercase tracking-widest text-stone-300 mb-2 font-semibold">
+              <span>literal</span>
+              <span>expansive</span>
+            </div>
+
+            {/* Connected segments */}
+            <div className="flex gap-px">
+              {BROWSE_BY.map((b, i) => {
+                const n = pageIndex?.buckets[b.idx]?.pages ?? 0;
+                const start = pageIndex?.buckets[b.idx]?.first_page ?? 0;
+                // Spectrum: stone → indigo → amber → rose, widths reflect corpus weight
+                const trackColors = [
+                  "bg-stone-200 hover:bg-stone-300",
+                  "bg-stone-300 hover:bg-stone-400",
+                  "bg-indigo-200 hover:bg-indigo-300",
+                  "bg-indigo-400 hover:bg-indigo-500",
+                  "bg-rose-400 hover:bg-rose-500",
+                ];
+                const labelColors = ["text-stone-600", "text-stone-700", "text-indigo-700", "text-indigo-800", "text-rose-700"];
+                const isFirst = i === 0;
+                const isLast = i === BROWSE_BY.length - 1;
+                return (
+                  <button
+                    key={b.label}
+                    onClick={() => nav({ view: "browse", page: String(start), min_r: b.min, max_r: b.max })}
+                    className={`group flex-1 text-left pt-0 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+                  >
+                    {/* Track segment */}
+                    <div className={`h-1.5 w-full transition-all duration-150 ${trackColors[i]} ${isFirst ? "rounded-l-full" : ""} ${isLast ? "rounded-r-full" : ""}`} />
+                    {/* Label block */}
+                    <div className="pt-3 pr-1">
+                      <div className={`text-[12px] font-semibold leading-tight ${labelColors[i]} group-hover:underline underline-offset-2 decoration-1`}>
+                        {b.label}
+                      </div>
+                      <div className="text-[10px] text-stone-400 mt-0.5 leading-tight">{b.desc}</div>
+                      <div className="text-[10px] tabular-nums text-stone-300 mt-1.5">
+                        {n > 0 ? `${n} ${n === 1 ? "page" : "pages"}` : "—"}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </section>
 
