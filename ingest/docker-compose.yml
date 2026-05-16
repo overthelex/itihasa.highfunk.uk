@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sanskrit
+      POSTGRES_USER: sanskrit
+      POSTGRES_PASSWORD: sanskrit
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sanskrit"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    shm_size: 256m
+
+  ingest:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://sanskrit:sanskrit@db:5432/sanskrit
+      MAX_WORKERS: "6"
+      DATA_DIR: /data
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN_READ:-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}
+    volumes:
+      - ingest-data:/data
+
+volumes:
+  pgdata:
+  ingest-data:
