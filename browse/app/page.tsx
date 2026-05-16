@@ -206,16 +206,19 @@ function Browser() {
       <div className="flex flex-wrap gap-2 items-center mb-5 bg-white p-3 rounded-lg border sticky top-0 z-10">
         <div className="flex gap-1">
           {[
-            { label: "All", min: "0", max: "999" },
-            { label: "1-2x", min: "1", max: "2" },
-            { label: "2-3x", min: "2", max: "3" },
-            { label: "3-5x", min: "3", max: "5" },
-            { label: "5-10x", min: "5", max: "10" },
-            { label: "10x+", min: "10", max: "999" },
+            { label: "All", min: "0", max: "999", idx: "all" },
+            { label: "1-2x", min: "1", max: "2", idx: "1_2" },
+            { label: "2-3x", min: "2", max: "3", idx: "2_3" },
+            { label: "3-5x", min: "3", max: "5", idx: "3_5" },
+            { label: "5-10x", min: "5", max: "10", idx: "5_10" },
+            { label: "10x+", min: "10", max: "999", idx: "10_20" },
           ].map((p) => (
             <button
               key={p.label}
-              onClick={() => nav({ min_r: p.min, max_r: p.max, page: "0" })}
+              onClick={() => {
+                const startPage = pageIndex?.buckets[p.idx]?.first_page ?? 0;
+                nav({ min_r: p.min, max_r: p.max, page: String(startPage) });
+              }}
               className={`text-xs px-3 py-1.5 rounded-full border transition font-medium ${
                 String(minR) === p.min && String(maxR) === p.max
                   ? "bg-indigo-600 text-white border-indigo-600"
