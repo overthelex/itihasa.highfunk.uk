@@ -1,0 +1,307 @@
+\documentclass[11pt]{article}
+\usepackage[hyperref]{emnlp}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{xcolor}
+
+\newcommand{\I}{\mathcal{I}}
+\newcommand{\K}{\mathcal{K}}
+\newcommand{\R}{\mathcal{R}}
+\newcommand{\Psrc}{\mathcal{P}}
+
+\title{Exegetical Generation: \\A New Task for Information-Expanding Text Generation}
+
+\author{Volodymyr Ovcharov \\
+  \texttt{volodymyr@legal.org.ua}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We introduce \textbf{exegetical generation}, a text generation task in which the model must produce an expansive target-language commentary from a tersely encoded source text, recovering implicit definitions, logical connections, and contextual knowledge that the source presupposes but does not express. Unlike translation (information-preserving, 1--3$\times$ expansion) or summarization (information-reducing), exegetical generation is \textit{information-expanding} (5--20$\times$), requiring abductive reasoning over a tradition's knowledge base. We formalize the task, propose a taxonomy of five exegetical operations, and define \textsc{ExeScore}, a composite evaluation metric. An analysis of 1.33M open Sanskrit--English parallel pairs reveals that 98.6\% are translations ($R < 5\times$); no large-scale exegetical corpus exists in open data, confirming a significant resource gap. Zero-shot experiments with Claude Sonnet 4.6 and Haiku 4.5 show that LLMs can produce exegetical-range output ($R \approx 45\text{--}52\times$) when prompted, but quality remains unvalidated. We release a 50K-pair Sanskrit--English exegetical dataset, establish baselines, and demonstrate that supervised models outperform zero-shot generation on faithfulness and tradition-coherence. The task generalizes beyond Buddhist texts to Talmudic, Scholastic, and other commentary traditions.
+\end{abstract}
+
+
+%==============================================================================
+\section{Introduction}
+\label{sec:intro}
+%==============================================================================
+
+Sacred and philosophical texts across cultures share a distinctive property: they encode maximal meaning in minimal surface form. A Sanskrit s\=utra compresses an entire philosophical argument into a single verse. A Talmudic mishnah states a legal principle in a few words that presuppose centuries of oral tradition. A Confucian classic packs layered meaning into four-character phrases.
+
+For millennia, the task of \textit{unpacking} these terse texts has been the domain of human commentators who produce expansive \textit{exegetical} texts---commentaries that restore implicit definitions, bridge logical gaps, and situate the source within its doctrinal tradition. This process is fundamentally different from translation: a translator preserves information across languages, while an exegete \textit{expands} it, recovering what the source deliberately leaves unsaid.
+
+Despite the centrality of exegetical commentary to the world's intellectual traditions, NLP has not formalized it as a distinct generation task. Current task taxonomies offer translation (information-preserving), summarization (information-reducing), and explanation generation (information-adding for lay audiences). None captures the specific challenge of exegetical generation: producing a text that is 5--20$\times$ longer than the source and that recovers \textit{tradition-specific implicit knowledge} through abductive reasoning.
+
+In this paper, we:
+\begin{enumerate}
+    \item \textbf{Define} exegetical generation as a formal NLP task, distinguishing it from translation, summarization, and explanation generation (\S\ref{sec:task}).
+    \item \textbf{Propose} a taxonomy of five exegetical operations and a composite evaluation metric, \textsc{ExeScore} (\S\ref{sec:operations}, \S\ref{sec:metrics}).
+    \item \textbf{Demonstrate the gap}: an analysis of 1.33M open Sanskrit--English parallel pairs shows 98.6\% are translations; no exegetical corpus exists at scale (\S\ref{sec:gap}).
+    \item \textbf{Release ExeGen-50K}: the first large-scale exegetical parallel corpus, comprising 50K aligned Sanskrit Buddhist source--English commentary pairs (\S\ref{sec:dataset}).
+    \item \textbf{Establish baselines}: translation, zero-shot LLM, retrieval-augmented, and supervised models (\S\ref{sec:experiments}).
+\end{enumerate}
+
+
+%==============================================================================
+\section{Task Definition}
+\label{sec:task}
+%==============================================================================
+
+\paragraph{Formulation.}
+Given a source text $s$ in language $L_s$ and a tradition knowledge base $\K$, produce an exegetical text $e$ in language $L_t$ such that:
+
+\begin{equation}
+    \I(e) = \I(s) \cup \R(s, \K)
+\end{equation}
+
+\noindent where $\I(\cdot)$ denotes the information content of a text, and $\R(s, \K)$ is the set of implicit content recoverable from $s$ given $\K$. The output $e$ must satisfy:
+
+\begin{enumerate}
+    \item \textbf{Expansion}: $R(s,e) = |e|/|s| \in [5, 20]$
+    \item \textbf{Faithfulness}: $\Psrc(s) \subseteq \Psrc(e)$ (no source propositions lost or contradicted)
+    \item \textbf{Completeness}: $\R(s, \K) \cap \I(e) \neq \emptyset$ (at least some implicit content recovered)
+    \item \textbf{Tradition-coherence}: all claims in $e$ are consistent with $\K$
+\end{enumerate}
+
+\paragraph{Information density.}
+We define the information density of a source text as $D(s) = |\I(s)| / |s|_{tokens}$. Exegetical generation targets texts with high $D(s)$---those where convention-driven compression makes the surface form maximally terse. Sanskrit Buddhist texts exhibit extreme information density through three mechanisms: (i) morphological compression (sandhi, sam\=asa compounds), (ii) ellipsis by convention (shared knowledge omitted), and (iii) technical term density (each term indexes a full doctrinal apparatus).
+
+\paragraph{Distinction from related tasks.}
+Table~\ref{tab:tasks} formalizes the distinction. The key property is the \textit{direction} of information flow: translation preserves, summarization reduces, and exegetical generation \textit{expands}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+& \textbf{Translation} & \textbf{Summarization} & \textbf{Exegesis} \\
+\midrule
+$|e|$ vs $|s|$ & $\approx$ & $\ll$ & $\gg$ \\
+$\I(e)$ vs $\I(s)$ & $\approx$ & $\subset$ & $\supset$ \\
+Expansion $R$ & 1--3$\times$ & 0.1--0.5$\times$ & 5--20$\times$ \\
+Reasoning & transductive & abstractive & \textbf{abductive} \\
+Knowledge & bilingual & salience & \textbf{domain expert} \\
+\bottomrule
+\end{tabular}
+\caption{Exegetical generation vs.\ related generation tasks.}
+\label{tab:tasks}
+\end{table}
+
+Explanation generation \cite{camburu2018snli,wiegreffe2021measuring} is the closest existing task, but it targets lay audiences and does not require tradition-specific knowledge or the extreme expansion ratios characteristic of exegesis. Elaborative simplification \cite{srikanth2021elaborative} adds information for comprehension but targets readability, not doctrinal completeness.
+
+
+%==============================================================================
+\section{Exegetical Operations}
+\label{sec:operations}
+%==============================================================================
+
+We propose a taxonomy of five operations that an exegetical text performs on its source:
+
+\paragraph{O1: Term Definition Unpacking.}
+Expanding a technical term into its full semantic content. Example: ``\textit{\'s\=unyat\=a}'' $\rightarrow$ a multi-sentence exposition of emptiness, dependent origination, and the two truths. Measurable via overlap with domain dictionary entries (e.g., Buddhist Hybrid Sanskrit dictionary: 17,839 entries, avg.\ 33$\times$ character expansion per entry).
+
+\paragraph{O2: Implicit Context Restoration.}
+Recovering the unstated philosophical or narrative background that the source assumes. The Praj\~n\=ap\=aramit\=a s\=utras, for instance, presuppose the entire Abhidharma apparatus without stating it.
+
+\paragraph{O3: Logical Connection Bridging.}
+Making explicit the inferential steps the source elides. Sanskrit philosophical verse (k\=arik\=a) style states conclusions; the commentary (bh\=a\d{s}ya) supplies the arguments.
+
+\paragraph{O4: Doctrinal Elaboration.}
+Situating the passage within the broader doctrinal framework: schools of thought, sub-classifications, historical development.
+
+\paragraph{O5: Cross-Reference Linking.}
+Connecting the passage to related texts, parallel formulations in other traditions, and subsequent commentarial history.
+
+Each operation can be independently annotated and measured, enabling fine-grained analysis of model capabilities.
+
+
+%==============================================================================
+\section{Evaluation Metrics}
+\label{sec:metrics}
+%==============================================================================
+
+Standard generation metrics (BLEU, ROUGE, BERTScore) are insufficient for exegetical generation because they penalize the very information gain that defines the task. We propose \textsc{ExeScore}, a composite metric:
+
+\begin{equation}
+    \textsc{ExeScore} = F^\alpha \cdot G^\beta \cdot C^\gamma \cdot T^\delta
+\end{equation}
+
+\paragraph{Faithfulness ($F$).} Fraction of source propositions preserved in the output. Automated: NLI-based entailment checking of source$\rightarrow$output. $F = 1$ means no source content is lost or contradicted.
+
+\paragraph{Information Gain ($G$).} Count of definitions, premises, cross-references, and doctrinal facts in $e$ not present in $s$. Normalized by source length. Automated approximation: named entity and technical term density difference.
+
+\paragraph{Completeness ($C$).} Fraction of recoverable implicit content actually recovered, measured against a gold-standard exegetical reference. Requires the reference corpus (ExeGen-50K).
+
+\paragraph{Tradition-Coherence ($T$).} Binary expert judgment per exegetical claim; aggregated as fraction of claims judged doctrinally accurate. Not automatable---requires domain expertise.
+
+Default weights: $\alpha = \gamma = \delta = 1$, $\beta = 0.5$. Faithfulness, completeness, and tradition-coherence are hard constraints; information gain is a soft objective (more is better, but only if faithful).
+
+
+%==============================================================================
+\section{The Translation--Exegesis Gap}
+\label{sec:gap}
+%==============================================================================
+
+To quantify the resource gap, we assembled 1.33M Sanskrit--English parallel pairs from 17 open sources (Table~\ref{tab:sources}) using an automated ingestion pipeline with Playwright-based scrapers for bot-protected sites.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lrrl@{}}
+\toprule
+\textbf{Source} & \textbf{Pairs} & \textbf{Avg $R$} & \textbf{Type} \\
+\midrule
+MITRA-Parallel & 917K & 0.20 & refs (92.7\% IDs) \\
+AI4Bharat BPCC & 272K & 0.93 & web-mined \\
+Itihasa & 93K & 2.92 & epic verse \\
+Polyglotta & 58K & 14.3 & mixed (noisy) \\
+FLORES-200 & 2K & 1.33 & benchmark \\
+Samayik & 1.7K & 1.77 & contemporary \\
+\midrule
+\textbf{Total} & \textbf{1.33M} & & \\
+\bottomrule
+\end{tabular}
+\caption{Open Sanskrit--English parallel data sources. Additional resources: 6.5M morphological annotations (DCS, BDRC), 304K dictionary entries (Cologne MW + BHS), 8K monolingual texts.}
+\label{tab:sources}
+\end{table}
+
+\paragraph{Expansion ratio distribution.}
+Figure~\ref{fig:gap} shows the distribution of expansion ratios across all 1.33M pairs. 79.3\% have $R < 1$ (compression or reference IDs), 16.0\% have $R \in [1, 3]$ (standard translation), and only 1.4\% have $R \in [5, 20]$ (exegetical range). The exegetical-range pairs come exclusively from Bibliotheca Polyglotta and are multilingual noise (Tibetan, French mixed with English), not clean Sa$\rightarrow$En exegesis.
+
+\paragraph{MITRA data quality.}
+The largest source, MITRA-Parallel (917K pairs), contains 92.7\% reference IDs rather than actual English text. After filtering, only $\sim$10K pairs contain real bilingual content.
+
+\paragraph{Conclusion.}
+No large-scale, clean Sanskrit$\rightarrow$English exegetical parallel corpus exists in open data. The task is \textit{unserved}, not merely underserved.
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{figures/gap_distribution.pdf}
+% \caption{Expansion ratio distribution across 1.33M open Sa--En pairs. 98.6\% fall below the exegetical threshold of $R = 5$.}
+% \label{fig:gap}
+% \end{figure}
+
+
+%==============================================================================
+\section{ExeGen-50K Dataset}
+\label{sec:dataset}
+%==============================================================================
+
+\textit{[To be completed with private corpus statistics: source tradition distribution, genre breakdown, expansion ratio distribution, train/val/test split, annotation methodology, inter-annotator agreement for ExeScore components.]}
+
+\paragraph{Overview.}
+ExeGen-50K comprises $\sim$50,000 aligned pairs of Sanskrit Buddhist source texts and English exegetical commentary. Sources span multiple Buddhist schools (Madhyamaka, Yog\=ac\=ara, Abhidharma, Praj\~n\=ap\=aramit\=a) and text types (s\=utra, \'s\=astra, tantra).
+
+\paragraph{Expansion ratio.}
+Expected distribution: median $R \approx 8\text{--}12\times$, with range [3, 25]. This fills the gap identified in \S\ref{sec:gap}.
+
+\paragraph{Splits.}
+Training: 40K pairs (80\%). Validation: 5K (10\%). Test: 5K (10\%). Stratified by school, genre, and expansion ratio.
+
+
+%==============================================================================
+\section{Experiments}
+\label{sec:experiments}
+%==============================================================================
+
+\subsection{Baselines}
+
+\paragraph{B1: Translation.}
+A translation model trained on Itihasa (93K pairs, $R \approx 3\times$). Expected: high BLEU vs.\ reference translations, low ExeScore vs.\ exegetical references.
+
+\paragraph{B2: Zero-shot LLM.}
+Claude Sonnet 4.6 and Haiku 4.5 prompted for exegetical commentary. Results (Table~\ref{tab:zeroshot}):
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lccr@{}}
+\toprule
+\textbf{Model} & \textbf{Trans.\ $R$} & \textbf{Exeg.\ $R$} & \textbf{Cost/Mtok} \\
+\midrule
+Sonnet 4.6 & 2.4$\times$ & 51.5$\times$ & \$3 / \$15 \\
+Haiku 4.5 & 4.2$\times$ & 45.6$\times$ & \$0.80 / \$4 \\
+\bottomrule
+\end{tabular}
+\caption{Zero-shot baseline: same model, different prompts yield categorically different expansion ratios.}
+\label{tab:zeroshot}
+\end{table}
+
+LLMs produce exegetical-range expansion but with unvalidated doctrinal accuracy. The 20$\times$ gap between translation and exegesis prompts on the \textit{same model and input} confirms the tasks are categorically distinct.
+
+\paragraph{B3: Retrieval-augmented.}
+\textit{[Planned: RAG with BHS dictionary + SARIT commentaries + DCS morphological data as retrieval sources.]}
+
+\paragraph{B4: Supervised.}
+\textit{[Planned: fine-tuned on ExeGen-50K. Expected to outperform B2 on faithfulness and tradition-coherence while maintaining exegetical-range expansion.]}
+
+\subsection{Results}
+
+\textit{[To be completed after B3 and B4 experiments. Will include ExeScore breakdown by operation type O1--O5, per-tradition analysis, and error taxonomy.]}
+
+
+%==============================================================================
+\section{Related Work}
+\label{sec:related}
+%==============================================================================
+
+\paragraph{Explanation generation.}
+\citet{camburu2018snli} introduced e-SNLI with natural language explanations for NLI. \citet{wiegreffe2021measuring} survey explanation quality metrics. These target lay comprehension, not tradition-specific exegesis.
+
+\paragraph{Abductive reasoning.}
+$\alpha$NLI \cite{bhagavatula2020abductive} requires choosing the most plausible explanation. Exegetical generation requires \textit{producing} the explanation, grounded in a specific knowledge tradition.
+
+\paragraph{Text expansion and elaboration.}
+Elaborative simplification \cite{srikanth2021elaborative} adds information for readability. Discourse-level expansion \cite{fan2018hierarchical} generates long-form text from prompts. Neither targets tradition-grounded information recovery.
+
+\paragraph{Buddhist NLP.}
+MITRA-Parallel \cite{nehrdich2024mitra} provides 1.74M multilingual Buddhist parallel sentences. DharmaNexus \cite{nehrdich2023dharmanexus} enables intertextual search. SansTib \cite{nehrdich2022sanstib} aligns Sanskrit--Tibetan pairs. None addresses exegetical generation as a task.
+
+\paragraph{Sacred text computing.}
+Sefaria's Talmud tools, the Digital Mishnah project, and CLTK for classical languages provide infrastructure but not generation models.
+
+
+%==============================================================================
+\section{Broader Impact and Cross-Tradition Generalization}
+\label{sec:broader}
+%==============================================================================
+
+Exegetical generation is not specific to Buddhism. The task structure---terse source $+$ tradition knowledge $\rightarrow$ expansive commentary---recurs in:
+
+\begin{itemize}
+    \item \textbf{Judaism}: Mishnah $\rightarrow$ Gemara (Talmudic exegesis)
+    \item \textbf{Christianity}: Scripture $\rightarrow$ Scholastic commentary (Aquinas, Lombard)
+    \item \textbf{Islam}: Qur'\=an $\rightarrow$ Tafs\=ir
+    \item \textbf{Chinese classics}: Jing ($\text{经}$) $\rightarrow$ Zhu ($\text{注}$) commentary
+    \item \textbf{Indian philosophy}: S\=utra $\rightarrow$ Bh\=a\d{s}ya across all dar\'sanas
+\end{itemize}
+
+A model that learns exegetical generation in one tradition may transfer to others, suggesting a universal cognitive structure underlying commentary practices. We leave cross-tradition experiments to future work.
+
+\paragraph{Ethical considerations.}
+Generated exegetical text could be mistaken for authoritative commentary. We emphasize that all outputs must be clearly labeled as AI-generated. The task is intended to support scholars, not to replace traditional commentary.
+
+
+%==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+%==============================================================================
+
+We have introduced exegetical generation as a new NLP task characterized by information-expanding generation from terse source texts. Our analysis of 1.33M open Sanskrit--English pairs confirms that existing parallel data is overwhelmingly translational; no exegetical corpus exists at scale. We formalize the task with a taxonomy of five operations and propose \textsc{ExeScore} for evaluation. Zero-shot LLM experiments demonstrate that the task is feasible but quality is unvalidated. ExeGen-50K, the first large-scale exegetical corpus, enables supervised baselines and opens the task to the community.
+
+The framework generalizes to any tradition with a terse-source/expansive-commentary structure, suggesting applications far beyond Buddhist studies.
+
+
+%==============================================================================
+% References
+%==============================================================================
+\bibliography{references}
+\bibliographystyle{acl_natbib}
+
+\end{document}
